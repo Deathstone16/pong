@@ -11,8 +11,11 @@ import android.content.Intent
 import android.widget.EditText
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -24,6 +27,11 @@ import kotlin.random.Random
 class MainActivity : AppCompatActivity() {
     private lateinit var scoreDatabase: ScoreDatabase
     private var playerName = "Jugador"
+    private val scoresLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        requestPlayerName()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,9 +45,10 @@ class MainActivity : AppCompatActivity() {
         val nameInput = EditText(this).apply {
             hint = "Tu nombre"
             setSingleLine()
+            imeOptions = EditorInfo.IME_ACTION_DONE or EditorInfo.IME_FLAG_NO_EXTRACT_UI
             setText(playerName.takeIf { it != "Jugador" } ?: "")
         }
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("Pong Retro")
             .setMessage("Ingresá tu nombre para guardar tu puntaje al terminar la partida.")
             .setView(nameInput)
@@ -49,10 +58,22 @@ class MainActivity : AppCompatActivity() {
                 startGame()
             }
             .setNegativeButton("Ver puntajes") { _, _ ->
-                startActivity(Intent(this, ScoresActivity::class.java))
-                requestPlayerName()
+                scoresLauncher.launch(Intent(this, ScoresActivity::class.java))
             }
-            .show()
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            nameInput.setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == EditorInfo.IME_ACTION_DONE) {
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+        dialog.show()
     }
 
     private fun startGame() {
@@ -67,7 +88,9 @@ class MainActivity : AppCompatActivity() {
             .setTitle(if (playerWon) "¡Ganaste!" else "Fin de la partida")
             .setMessage("$playerName: $playerScore\nRival: $opponentScore\n\nEl resultado fue guardado.")
             .setPositiveButton("Nueva partida") { _, _ -> requestPlayerName() }
-            .setNegativeButton("Puntajes") { _, _ -> startActivity(Intent(this, ScoresActivity::class.java)) }
+            .setNegativeButton("Puntajes") {
+                    _, _ -> scoresLauncher.launch(Intent(this, ScoresActivity::class.java))
+            }
             .setNeutralButton("Cerrar", null)
             .show()
     }
