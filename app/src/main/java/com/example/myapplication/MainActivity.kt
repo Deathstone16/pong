@@ -7,8 +7,11 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.os.Bundle
 import android.os.SystemClock
+import android.content.Intent
+import android.widget.EditText
 import android.view.MotionEvent
 import android.view.View
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -19,16 +22,62 @@ import kotlin.math.min
 import kotlin.random.Random
 
 class MainActivity : AppCompatActivity() {
+    private lateinit var scoreDatabase: ScoreDatabase
+    private var playerName = "Jugador"
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        scoreDatabase = ScoreDatabase(this)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).hide(WindowInsetsCompat.Type.systemBars())
-        setContentView(PongView(this))
+        requestPlayerName()
+    }
+
+    private fun requestPlayerName() {
+        val nameInput = EditText(this).apply {
+            hint = "Tu nombre"
+            setSingleLine()
+            setText(playerName.takeIf { it != "Jugador" } ?: "")
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Pong Retro")
+            .setMessage("Ingresá tu nombre para guardar tu puntaje al terminar la partida.")
+            .setView(nameInput)
+            .setCancelable(false)
+            .setPositiveButton("Jugar") { _, _ ->
+                playerName = nameInput.text.toString().trim().ifBlank { "Jugador" }.take(24)
+                startGame()
+            }
+            .setNegativeButton("Ver puntajes") { _, _ ->
+                startActivity(Intent(this, ScoresActivity::class.java))
+                requestPlayerName()
+            }
+            .show()
+    }
+
+    private fun startGame() {
+        setContentView(PongView(this) { playerScore, opponentScore, playerWon ->
+            scoreDatabase.saveScore(playerName, playerScore, opponentScore, playerWon)
+            showGameOver(playerScore, opponentScore, playerWon)
+        })
+    }
+
+    private fun showGameOver(playerScore: Int, opponentScore: Int, playerWon: Boolean) {
+        AlertDialog.Builder(this)
+            .setTitle(if (playerWon) "¡Ganaste!" else "Fin de la partida")
+            .setMessage("$playerName: $playerScore\nRival: $opponentScore\n\nEl resultado fue guardado.")
+            .setPositiveButton("Nueva partida") { _, _ -> requestPlayerName() }
+            .setNegativeButton("Puntajes") { _, _ -> startActivity(Intent(this, ScoresActivity::class.java)) }
+            .setNeutralButton("Cerrar", null)
+            .show()
     }
 }
 
 /** A self-contained, two-player Pong implementation written entirely in Kotlin. */
-private class PongView(context: Context) : View(context) {
+private class PongView(
+    context: Context,
+    private val onGameFinished: (playerScore: Int, opponentScore: Int, playerWon: Boolean) -> Unit
+) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val pointerSides = mutableMapOf<Int, Side>()
 
@@ -45,6 +94,8 @@ private class PongView(context: Context) : View(context) {
     private var ballVelocityX = 0f
     private var ballVelocityY = 0f
     private var previousFrame = SystemClock.elapsedRealtimeNanos()
+    private var gameFinished = false
+    private val winningScore = 5
 
     private val fieldTop get() = height * 0.16f
     private val fieldBottom get() = height * 0.94f
@@ -91,6 +142,7 @@ private class PongView(context: Context) : View(context) {
     }
 
     private fun update(dt: Float) {
+        if (gameFinished) return
         val minPaddleY = fieldTop + paddleHeight / 2f
         val maxPaddleY = fieldBottom - paddleHeight / 2f
         leftPaddleY += (leftTargetY.coerceIn(minPaddleY, maxPaddleY) - leftPaddleY) * min(1f, dt * 16f)
@@ -112,10 +164,19 @@ private class PongView(context: Context) : View(context) {
 
         if (ballX + ballRadius < 0) {
             rightScore++
-            resetBall(1f)
+            completePoint(1f)
         } else if (ballX - ballRadius > width) {
             leftScore++
-            resetBall(-1f)
+            completePoint(-1f)
+        }
+    }
+
+    private fun completePoint(nextDirection: Float) {
+        if (leftScore >= winningScore || rightScore >= winningScore) {
+            gameFinished = true
+            onGameFinished(leftScore, rightScore, leftScore > rightScore)
+        } else {
+            resetBall(nextDirection)
         }
     }
 
